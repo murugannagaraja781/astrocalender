@@ -4,9 +4,9 @@
  * Handles communication with the backend API.
  */
 
-import { PanchangamRequest, PanchangamResponse } from '../types/panchangam';
+import { PanchangamRequest, PanchangamRangeRequest, PanchangamResponse } from '../types/panchangam';
 
-const API_BASE = '/api';
+const API_BASE = 'https://astrocalender.onrender.com/api';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -53,4 +53,50 @@ export async function fetchTodayPanchangam(): Promise<PanchangamResponse> {
   }
 
   return response.json();
+}
+
+/**
+ * Calculate Panchangam for a date range.
+ */
+export async function fetchPanchangamRange(request: PanchangamRangeRequest): Promise<PanchangamResponse[]> {
+  const response = await fetch(`${API_BASE}/panchangam/range`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(
+      response.status,
+      errorData.message || errorData.error || 'Failed to fetch Panchangam range'
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Download Panchangam CSV for a date range.
+ */
+export async function downloadPanchangamCsv(request: PanchangamRangeRequest): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/panchangam/csv`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(
+      response.status,
+      errorData.message || errorData.error || 'Failed to download CSV'
+    );
+  }
+
+  return response.blob();
 }

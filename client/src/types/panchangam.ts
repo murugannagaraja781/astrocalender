@@ -17,6 +17,15 @@ export interface PanchangamRequest {
   birthNakshatra?: string;
 }
 
+export interface PanchangamRangeRequest {
+  startDate: string;
+  endDate: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  birthNakshatra?: string;
+}
+
 export interface LocationInfo {
   latitude: number;
   longitude: number;

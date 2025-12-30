@@ -23,7 +23,7 @@ export interface PanchangamRequest {
   latitude: number;       // -90 to 90
   longitude: number;      // -180 to 180
   timezone: string;       // IANA timezone (e.g., "Asia/Kolkata")
-  birthNakshatra?: string; // Optional, for Chandrashtamam calculation
+  birthNakshatra?: string | undefined; // Optional, for Chandrashtamam calculation
 }
 
 export interface PanchangamResponse {

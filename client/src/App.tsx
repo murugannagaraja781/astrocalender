@@ -10,7 +10,6 @@ import { useGeolocation } from './hooks/useGeolocation';
 import { useLanguage } from './hooks/useLanguage';
 import { PanchangamDisplay } from './components/PanchangamDisplay';
 import { BilingualText } from './types/panchangam';
-import { Language } from './i18n';
 
 // Nakshatra list for birth nakshatra selector
 const NAKSHATRAS = [
@@ -28,9 +27,17 @@ function getToday(): string {
 export default function App() {
     const { language, t, setLanguage } = useLanguage();
     const { location, detectLocation } = useGeolocation();
-    const { data, loading, error, calculate } = usePanchangam();
+    const { data, loading, error, calculate, downloadCsv } = usePanchangam();
 
+    // Single date mode
     const [date, setDate] = useState(getToday());
+
+    // Date range mode
+    const [isRangeMode, setIsRangeMode] = useState(false);
+    const [startDate, setStartDate] = useState(getToday());
+    const [endDate, setEndDate] = useState(getToday());
+
+    // Location
     const [latitude, setLatitude] = useState('13.0827');
     const [longitude, setLongitude] = useState('80.2707');
     const [timezone, setTimezone] = useState('Asia/Kolkata');
@@ -63,6 +70,29 @@ export default function App() {
 
     const handleDetectLocation = () => {
         detectLocation();
+    };
+
+    const handleDownloadCSV = async () => {
+        const blob = await downloadCsv({
+            startDate,
+            endDate,
+            latitude: parseFloat(latitude),
+            longitude: parseFloat(longitude),
+            timezone,
+            birthNakshatra: birthNakshatra || undefined,
+        });
+
+        if (blob) {
+            // Download the CSV file
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `panchangam_${startDate}_to_${endDate}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
     };
 
     const getText = (bilingual: BilingualText): string => {
@@ -104,18 +134,56 @@ export default function App() {
                     <form className="card" onSubmit={handleCalculate}>
                         <div className="card__header">
                             <h2 className="card__title">📅 {t.dateLabel} & {t.locationLabel}</h2>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={isRangeMode}
+                                        onChange={(e) => setIsRangeMode(e.target.checked)}
+                                        style={{ marginRight: '0.25rem' }}
+                                    />
+                                    {language === 'ta' ? 'தேதி வரம்பு' : 'Date Range'}
+                                </label>
+                            </div>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                            <div className="input-group">
-                                <label className="input-group__label">{t.dateLabel}</label>
-                                <input
-                                    type="date"
-                                    className="input-group__input"
-                                    value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                />
-                            </div>
+                            {!isRangeMode ? (
+                                <div className="input-group">
+                                    <label className="input-group__label">{t.dateLabel}</label>
+                                    <input
+                                        type="date"
+                                        className="input-group__input"
+                                        value={date}
+                                        onChange={(e) => setDate(e.target.value)}
+                                    />
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="input-group">
+                                        <label className="input-group__label">
+                                            {language === 'ta' ? 'தொடக்க தேதி' : 'Start Date'}
+                                        </label>
+                                        <input
+                                            type="date"
+                                            className="input-group__input"
+                                            value={startDate}
+                                            onChange={(e) => setStartDate(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-group__label">
+                                            {language === 'ta' ? 'முடிவு தேதி' : 'End Date'}
+                                        </label>
+                                        <input
+                                            type="date"
+                                            className="input-group__input"
+                                            value={endDate}
+                                            onChange={(e) => setEndDate(e.target.value)}
+                                        />
+                                    </div>
+                                </>
+                            )}
 
                             <div className="input-group">
                                 <label className="input-group__label">{t.latitudeLabel}</label>
@@ -165,13 +233,25 @@ export default function App() {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
                             <button type="button" className="btn btn--secondary" onClick={handleDetectLocation}>
                                 📍 {t.detectLocation}
                             </button>
-                            <button type="submit" className="btn btn--primary" disabled={loading}>
-                                {loading ? '⏳' : '🔮'} {t.calculate}
-                            </button>
+
+                            {!isRangeMode ? (
+                                <button type="submit" className="btn btn--primary" disabled={loading}>
+                                    {loading ? '⏳' : '🔮'} {t.calculate}
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="btn btn--primary"
+                                    onClick={handleDownloadCSV}
+                                    disabled={loading}
+                                >
+                                    {loading ? '⏳' : '📥'} {language === 'ta' ? 'CSV பதிவிறக்கம்' : 'Download CSV'}
+                                </button>
+                            )}
                         </div>
                     </form>
 
@@ -190,9 +270,27 @@ export default function App() {
                         </div>
                     )}
 
-                    {/* Panchangam Display */}
-                    {data && !loading && (
+                    {/* Panchangam Display (only in single date mode) */}
+                    {data && !loading && !isRangeMode && (
                         <PanchangamDisplay data={data} language={language} t={t} getText={getText} />
+                    )}
+
+                    {/* Range Mode Info */}
+                    {isRangeMode && !loading && (
+                        <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
+                            <p style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>
+                                📊 {language === 'ta' ? 'தேதி வரம்பு CSV ஏற்றுமதி' : 'Date Range CSV Export'}
+                            </p>
+                            <p style={{ color: 'var(--color-text-secondary)' }}>
+                                {language === 'ta'
+                                    ? 'தொடக்க மற்றும் முடிவு தேதிகளைத் தேர்ந்தெடுத்து CSV பதிவிறக்க பொத்தானைக் கிளிக் செய்யவும்.'
+                                    : 'Select start and end dates, then click Download CSV to export Panchangam data for the entire date range.'
+                                }
+                            </p>
+                            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                                {language === 'ta' ? 'அதிகபட்சம் 365 நாட்கள்' : 'Maximum 365 days'}
+                            </p>
+                        </div>
                     )}
                 </div>
             </main>
