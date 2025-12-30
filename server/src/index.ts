@@ -10,7 +10,7 @@ import cors from 'cors';
 import { panchangamRouter } from './routes/panchangam.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5501;
 
 // Middleware
 app.use(cors());

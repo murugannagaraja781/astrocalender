@@ -6,7 +6,9 @@
 
 import { PanchangamRequest, PanchangamRangeRequest, PanchangamResponse } from '../types/panchangam';
 
-const API_BASE = 'https://astrocalender.onrender.com/api';
+const API_BASE = import.meta.env.DEV
+  ? 'http://localhost:5501/api'
+  : 'https://astrocalender.onrender.com/api';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
