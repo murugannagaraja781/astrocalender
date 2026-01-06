@@ -10,9 +10,7 @@ import {
   initSwissEph,
   calculateSunrise,
   calculateSunset,
-  getSunLongitude,
-  getMoonLongitude,
-  getSunMoonPositions
+  getSunLongitude
 } from '../engine/swisseph.js';
 import { calculateTithi } from '../engine/tithi.js';
 import { calculateNakshatra } from '../engine/nakshatra.js';
@@ -23,8 +21,9 @@ import { calculateDayLagnams } from '../engine/lagnam.js';
 import { calculateInauspiciousPeriods, calculateAuspiciousPeriods } from '../engine/muhurta.js';
 import { calculateChandrashtama } from '../engine/chandrashtama.js';
 import { getMatchingFestivals } from '../engine/festivals.js';
-import { getTamilMonth, getTamilDay, getTamilYear } from '../config/tamilCalendar.js';
-import { dateToJulianDay, julianDayToDateTime, formatTime, getStartOfDay } from '../utils/datetime.js';
+import { calculateTamilDate, getTamilMonthName } from '../engine/tamilDate.js';
+import { getTamilYear } from '../config/tamilCalendar.js';
+import { dateToJulianDay, julianDayToDateTime, formatTime } from '../utils/datetime.js';
 
 /**
  * Calculate complete Panchangam for a given date and location.
@@ -49,14 +48,14 @@ export async function calculatePanchangam(request: PanchangamRequest): Promise<P
   const sunLongitude = getSunLongitude(sunriseJD);
 
   // Calculate Tamil calendar
-  const tamilMonth = getTamilMonth(sunLongitude);
-  const tamilDay = getTamilDay(sunLongitude);
+  const tamilDateInfo = calculateTamilDate(date, { latitude, longitude, timezone });
+  const tamilMonthName = getTamilMonthName(tamilDateInfo.monthIndex);
   const gregorianYear = parseInt(date.split('-')[0] ?? '2025', 10);
   const tamilYear = getTamilYear(gregorianYear);
 
   const tamilCalendar: TamilCalendar = {
-    month: tamilMonth.name,
-    day: tamilDay,
+    month: tamilMonthName,
+    day: tamilDateInfo.day,
     year: tamilYear,
   };
 

@@ -1,98 +1,142 @@
 /**
  * Tamil Date Calculator
  *
- * Implements strict solar-ingress based Tamil date calculation.
+ * Implements strict solar-ingress based Tamil date calculation using the Vakya/Surya Siddhanta rules (approx)
+ * but adapted for Drik Ganita (Swisseph) with the specific Tamil calendar rule:
  *
- * Rules:
- * 1. Tamil Month is determined by the Sidereal Zodiac Sign of the Sun.
- * 2. Month transition (Sankranti) happens at the exact moment Sun enters the sign.
- * 3. The "Day" of the month is calculated based on the elapsed time since ingress,
- *    but simplified to the user's requirement:
- *    - If event_time >= solar_ingress_time -> Date = 1 (start of month).
- *    - To give a useful "Date 1..31", we calculate the day number based on degrees traversed + 1.
- *    This aligns with "1 degree per day" approximation and ensures Day 1 starts at 0°.
+ * Rule:
+ * The month changes when the Sun enters the new sign (Sankranti).
+ * - If Sankranti occurs during the *day* (Sunrise to Sunset), the *current* day is Day 1 of the new month.
+ * - If Sankranti occurs during the *night* (Sunset to Sunrise next day), the *next* day is Day 1 of the new month.
+ *
+ * To calculate the Day Number:
+ * 1. Find the Month Start Date (the first day where the effective month is the current month).
+ * 2. Day Number = (Current Date - Start Date) + 1.
  */
 
-import { getSunLongitude, findAngleCrossing, normalizeAngle } from './swisseph.js';
-import { julianDayToDate } from './swisseph.js';
+import { getSunLongitude, calculateSunrise, calculateSunset } from './swisseph.js';
+import { dateToJulianDay } from './swisseph.js'; // Use swisseph versions for JD consistency or adapt
+import { createDateTime, getStartOfDay } from '../utils/datetime.js';
 
 export interface TamilDateInfo {
   monthIndex: number; // 0 = Chithirai (Aries), 1 = Vaikasi (Taurus), etc.
-  day: number;        // Day of the month (1..32)
-  fraction: number;   // Fraction of the day elapsed
-  ingressJD: number;  // JD of the month start (Sankranti)
+  day: number;        // Day of the month (1, 2, 3...)
+  gregorianDate: string; // YYYY-MM-DD
+  totalDaysInMonth?: number; // Optional: Total days in this month
+}
+
+export interface Location {
+    latitude: number;
+    longitude: number;
+    timezone: string;
 }
 
 /**
- * Calculate Tamil Date based on strict solar ingress.
+ * Get the effective Tamil Month Index for a specific Gregorian Date at a Location.
+ * Applies the Sunset Rule.
+ */
+function getEffectiveMonthIndex(dateStr: string, location: Location): number {
+    const { latitude, longitude, timezone } = location;
+
+    // We need start of day JD for sunrise/settings calcs
+    const startOfDayDt = getStartOfDay(dateStr, timezone);
+    // Convert logic: swisseph expects Date object for dateToJulianDay usually,
+    // or we can use the dateToJulianDay from swisseph which takes string?
+    // Wait, swisseph.ts dateToJulianDay takes Date object.
+    const jd_start = dateToJulianDay(startOfDayDt.toJSDate());
+
+    // Calculate Sunrise & Sunset JDs
+    const jd_sunrise = calculateSunrise(jd_start, latitude, longitude);
+    const jd_sunset = calculateSunset(jd_start, latitude, longitude);
+
+    // Get Sun Longitude at Sunrise and Sunset
+    const sun_rise = getSunLongitude(jd_sunrise);
+    const sun_set = getSunLongitude(jd_sunset);
+
+    const sign_rise = Math.floor(sun_rise / 30);
+    const sign_set = Math.floor(sun_set / 30);
+
+    // Logic:
+    // If sign_rise != sign_set, it means Sun moved to new sign during the day (Sankranti during day).
+    // By rule: Day 1 of new month starts TODAY. So effective month is the NEW sign (sign_set).
+    if (sign_rise !== sign_set) {
+        return sign_set % 12; // Normalize 12 -> 0 if needed, though sun long is 0-360
+    }
+
+    // If sign_rise == sign_set, no change during day.
+    // Ensure we check if change happened previous night?
+    // Actually, if change happened last night (after yesterday sunset),
+    // then Today Sunrise is ALREADY in new sign.
+    // So effective month is simply sign_rise.
+    return sign_rise % 12;
+}
+
+/**
+ * Calculate Tamil Date based on rigorous civil calendar rules.
  *
- * @param jd - Julian Day of the event/query
+ * @param dateStr - YYYY-MM-DD
+ * @param location - Location object
  * @returns TamilDateInfo
  */
-export function calculateTamilDateStrict(jd: number): TamilDateInfo {
-  // 1. Get Sun's sidereal longitude
-  const sunLong = getSunLongitude(jd);
+export function calculateTamilDate(dateStr: string, location: Location): TamilDateInfo {
+  const currentMonthIndex = getEffectiveMonthIndex(dateStr, location);
 
-  // 2. Determine the Month (Zodiac Sign)
-  // 0 = Aries (Mesham/Chithirai), 1 = Taurus (Rishabam/Vaikasi)...
-  const monthIndex = Math.floor(sunLong / 30);
+  // Search backwards to find the Start Date (Day 1)
+  // Limit search to ~35 days (max month length is 32)
+  let dayCount = 1;
+  const currentDt = createDateTime(dateStr, location.timezone);
 
-  // 3. Find the exact Ingress Time (Sankranti) for this month
-  // The target angle is the start of the current sign (0, 30, 60...)
-  const targetAngle = monthIndex * 30;
+  for (let i = 1; i <= 35; i++) {
+      const prevDt = currentDt.minus({ days: i });
+      const prevDateStr = prevDt.toFormat('yyyy-MM-dd');
+      const prevMonthIndex = getEffectiveMonthIndex(prevDateStr, location);
 
-  // Search backwards up to 32 days to find when Sun crossed `targetAngle`
-  // Sun moves ~1 degree per day, so 30 degrees takes ~30 days.
-  // We search back 35 days to be safe.
-  const searchStartJD = jd - 35;
-  const searchEndJD = jd;
+      if (prevMonthIndex !== currentMonthIndex) {
+          // The transition happened after prevDate.
+          // So (prevDate + 1 day) was the first day of the new month.
+          // currentDt is (prevDate + i days).
+          // If i=1 (yesterday was diff), then Today is Day 1?
+          // Wait.
+          // If prevMonth != currentMonth, it means `prevDate` belongs to PREVIOUS month.
+          // So `prevDate + 1` (which is `currentDt - (i-1) days`) is Day 1.
 
-  const ingressJD = findAngleCrossing(
-    searchStartJD,
-    searchEndJD,
-    targetAngle,
-    getSunLongitude,
-    0.00001 // High precision for seconds-level accuracy
-  );
+          // Example: Today (Match) = New Month. Yesterday (i=1) = Old Month.
+          // So Today is Start Date. Day = 1.
+          // Logic: valid.
 
-  // 4. Calculate Day Number
-  // Conceptually, Day 1 is the first 24h (or degree?) after ingress?
-  // The user prompt says: "If event_time >= solar_ingress_time -> Tamil date = 1"
-  // This implies strict elapsed time or degree count.
-  // Method A: Degree-based (Astronomical standard)
-  // Day = floor(Longitude within sign) + 1
-  // Example: 0.1° -> Day 1. 29.9° -> Day 30.
+          // But wait, the loop calculates `dayCount`?
+          // actually dayCount is strictly `i`.
+          // If i=1 (Yesterday), and Yesterday was Old Month, then Today is Day 1.
+          // value is 1.
+          // If i=2 (Day before Yesterday) was Old Month, then Yesterday was Day 1, Today is Day 2.
+          // value is 2.
 
-  const degreesInSign = sunLong - targetAngle;
-  // Handle edge case of 360/0 wrap around if calc is slightly off
-  const normalizedDegrees = degreesInSign < 0 ? degreesInSign + 360 : degreesInSign;
-
-  const day = Math.floor(normalizedDegrees) + 1;
-  const fraction = normalizedDegrees - Math.floor(normalizedDegrees);
+          dayCount = i;
+          break;
+      }
+  }
 
   return {
-    monthIndex,
-    day,
-    fraction,
-    ingressJD
+    monthIndex: currentMonthIndex,
+    day: dayCount,
+    gregorianDate: dateStr
   };
 }
 
-/**
- * Get Tamil Month Name (English and Tamil)
- */
+
+// Maintain compatibility/lookup for names
 export const TAMIL_MONTHS = [
   { en: 'Chithirai', ta: 'சித்திரை' },
   { en: 'Vaikasi', ta: 'வைகாசி' },
-  { en: 'Ani', ta: 'ஆனி' },
-  { en: 'Adi', ta: 'ஆடி' },
-  { en: 'Avani', ta: 'ஆவணி' },
+  { en: 'Aani', ta: 'ஆனி' },
+  { en: 'Aadi', ta: 'ஆடி' },
+  { en: 'Aavani', ta: 'ஆவணி' },
   { en: 'Purattasi', ta: 'புரட்டாசி' },
   { en: 'Aippasi', ta: 'ஐப்பசி' },
   { en: 'Karthigai', ta: 'கார்த்திகை' },
   { en: 'Margazhi', ta: 'மார்கழி' },
   { en: 'Thai', ta: 'தை' },
-  { en: 'Masi', ta: 'மாசி' },
+  { en: 'Maasi', ta: 'மாசி' },
   { en: 'Panguni', ta: 'பங்குனி' }
 ];
 
